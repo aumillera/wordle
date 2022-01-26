@@ -1,13 +1,12 @@
 import argparse
 from pathlib import Path
-from collections import defaultdict
 
 import numpy as np
 from rich import print
-from rich.progress import track, Progress, TaskID
+from rich.progress import Progress
 
 
-DEFAULT_DICT = "wordle_all_words.txt"
+DEFAULT_DICT = "wordle_solutions.txt"
 MAX_RECURSION = 0
 progress = Progress(auto_refresh=False)
 
@@ -34,7 +33,6 @@ def parse_response(guess: str, response: str) -> tuple:
 def filter_valid(words: np.ndarray, corr: set, incl: set, excl: set) -> np.ndarray:
     validity_list = list()
     for i, c in corr:
-        # validity_list.append((np.char.find(words[:, i], c) + 1).astype(np.bool))
         valid = np.zeros(shape=words.shape, dtype=np.bool)
         valid[:, i] = words[:, i] == c
         validity_list.append(np.any(valid, axis=1))
@@ -43,12 +41,8 @@ def filter_valid(words: np.ndarray, corr: set, incl: set, excl: set) -> np.ndarr
         valid = np.zeros(shape=words.shape, dtype=np.bool)
         valid[:, i] = words[:, i] != c
         validity_list.append(np.any(valid, axis=1))
-        # validity_list.append(np.invert((np.char.find(words[:, i], c) + 1).astype(np.bool)))
-        # validity_list.append(np.sum(np.char.find(words, c) + 1, axis=1, dtype=np.bool))
     for c in excl:
         validity_list.append(np.alltrue(words != c, axis=1))
-        # validity_list.append(np.invert(np.sum(np.char.find(words, c) + 1, axis=1, dtype=np.bool)))
-    # validity_list = [np.any(v, axis=1) for v in validity_list]
     return np.alltrue(np.stack(validity_list), axis=0)
 
 
@@ -98,58 +92,13 @@ def recursive_compute_scores(words: np.ndarray, corr: set, incl: set, excl: set,
                 sub_scores[idx] *= np.max(recursive_compute_scores(new_words, new_corr, new_incl, new_excl, level + 1, max_level))
             else:
                 sub_scores[idx] = 1.0 / len(new_words)
+                # sub_scores[idx] = 0.0
 
         scores[idx] *= np.max(sub_scores)
         progress.update(p_id, advance=1, refresh=True)
 
     progress.remove_task(p_id)
     return scores
-
-
-def compute_scores(words: np.ndarray, corr: set, incl: set, excl: set) -> np.ndarray:
-    n_words = len(words)
-
-    # End Condition
-    if n_words <= 1:
-        return np.array([float(n_words)])
-
-    # Compute results for all possible solutions
-    scores = np.ones(n_words)
-    p_id = progress.add_task("Thinking", total=n_words)
-    for idx in range(n_words):
-        guess = "".join(words[idx])
-        progress.update(p_id, description=f"[bold red]{guess}[/bold red]")
-        sub_scores = np.ones(n_words) * (1.0 / n_words)
-
-        # Sample through all possible results
-        for jdx in range(n_words):
-            # Skip if same word
-            if idx == jdx:
-                sub_scores[idx] = 0.0
-                continue
-
-            result = "".join(words[jdx])
-            new_corr, new_incl, new_excl = parse_response(guess, generate_response(guess, result))
-            new_corr.update(corr), new_incl.update(incl), new_excl.update(excl)
-            new_words = words[filter_valid(words, new_corr, new_incl, new_excl)]
-            sub_scores[idx] = 1.0 / len(new_words)
-
-        scores[idx] *= np.max(sub_scores)
-        progress.update(p_id, advance=1, refresh=True)
-
-    progress.remove_task(p_id)
-    return scores
-
-
-def compute_letter_frequency(words: list) -> dict:
-    freq = defaultdict(float)
-    for w in words:
-        for l in set(w):
-            freq[l] += 1
-    for l in freq:
-        freq[l] /= len(words)
-
-    return freq
 
 
 class Solver():
@@ -176,7 +125,6 @@ class Solver():
         self._max_tries = max_tries
         self._max_rec = max_recursions
         self._idx = 0
-        self._freq = compute_letter_frequency(words)
 
         print(f"\nInitialized solver with [bold red]{len(self._ws)}[/bold red] words.\n")
 
@@ -211,6 +159,7 @@ class Solver():
         print(f"[bold]{'IDX':6s}{'SUGGESTION':12s}{'PROBABILITY':>12s}[/bold]")
         for i, (g, p) in enumerate(zip(self._ws[order][:10], self._scores[order][:10])):
             print(f"{str(i):6s}{''.join(g):12s}{p * 100:11.1f}%")
+        print("")
 
 
     def solved(self) -> bool:
