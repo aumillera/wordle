@@ -169,7 +169,7 @@ class Solver():
         self._idx = 0
         self._freq = compute_letter_frequency(words)
 
-        print(f"Initialized solver with [bold red]{len(self._ws)}[/bold red] words.")
+        print(f"\nInitialized solver with [bold red]{len(self._ws)}[/bold red] words.\n")
 
     def update(self, guess: str, response: str):
         # Parse Response
@@ -230,7 +230,7 @@ if __name__ == "__main__":
         print("Enter your guess and the response separated by a space, e.g.: [bold][green]g[/green]ue[yellow]ss[/yellow] gbbyy[/bold]")
         print("[green]:green_square: [bold]g[/bold]: Correct letter & location[/green]")
         print("[yellow]:yellow_square: [bold]y[/bold] Correct letter[/yellow]")
-        print(":black_large_square: [bold]b[/bold] Incorrect letter")
+        print(":black_large_square: [bold]b[/bold] Incorrect letter\n")
         guess, response = prompt().split(" ")
         solver.update(guess, response)
 
