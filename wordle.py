@@ -34,12 +34,21 @@ def parse_response(guess: str, response: str) -> tuple:
 def filter_valid(words: np.ndarray, corr: set, incl: set, excl: set) -> np.ndarray:
     validity_list = list()
     for i, c in corr:
-        validity_list.append((np.char.find(words[:, i], c) + 1).astype(np.bool))
+        # validity_list.append((np.char.find(words[:, i], c) + 1).astype(np.bool))
+        valid = np.zeros(shape=words.shape, dtype=np.bool)
+        valid[:, i] = words[:, i] == c
+        validity_list.append(np.any(valid, axis=1))
     for i, c in incl:
-        validity_list.append(np.invert((np.char.find(words[:, i], c) + 1).astype(np.bool)))
-        validity_list.append(np.sum(np.char.find(words, c) + 1, axis=1, dtype=np.bool))
+        validity_list.append(np.any(words == c, axis=1))
+        valid = np.zeros(shape=words.shape, dtype=np.bool)
+        valid[:, i] = words[:, i] != c
+        validity_list.append(np.any(valid, axis=1))
+        # validity_list.append(np.invert((np.char.find(words[:, i], c) + 1).astype(np.bool)))
+        # validity_list.append(np.sum(np.char.find(words, c) + 1, axis=1, dtype=np.bool))
     for c in excl:
-        validity_list.append(np.invert(np.sum(np.char.find(words, c) + 1, axis=1, dtype=np.bool)))
+        validity_list.append(np.alltrue(words != c, axis=1))
+        # validity_list.append(np.invert(np.sum(np.char.find(words, c) + 1, axis=1, dtype=np.bool)))
+    # validity_list = [np.any(v, axis=1) for v in validity_list]
     return np.alltrue(np.stack(validity_list), axis=0)
 
 
@@ -67,7 +76,7 @@ def recursive_compute_scores(words: np.ndarray, corr: set, incl: set, excl: set,
     # Compute results for all possible solutions
     scores = np.ones(n_words)
     color = "red" if level == 0 else "yellow" if level == 1 else ""
-    p_id = progress.add_task("Thinking", total=n_words)
+    p_id = progress.add_task(".....", total=n_words)
     for idx in range(n_words):
         guess = "".join(words[idx])
         progress.update(p_id, description=f"[bold {color}]{guess}[/bold {color}]")
@@ -185,6 +194,9 @@ class Solver():
             sol = "".join(self._ws[0])
             print(f"Solved after {self._idx} tries! The word is: [bold green]{sol}[/bold green]")
             return
+        elif len(self._ws) == 0:
+            print("[red]No words matching words were found, did you correctly type all responses?[/red]")
+            exit(0)
 
         with progress:
             self._scores = recursive_compute_scores(self._ws, self._corr, self._incl, self._excl, max_level=self._max_rec)
