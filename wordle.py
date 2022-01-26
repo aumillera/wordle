@@ -1,5 +1,6 @@
 import argparse
 from pathlib import Path
+from collections import defaultdict
 
 import numpy as np
 from rich import print
@@ -60,11 +61,26 @@ def generate_response(guess: str, target: str) -> str:
     return response
 
 
+def compute_letter_frequency(words: list):
+    freq = defaultdict(float)
+    for w in words:
+        for c in set(w):
+            freq[c] += 1
+    for c in freq:
+        freq[c] /= len(words)
+    return freq
+
+
+def compute_word_score(word: str, freq: dict):
+    return sum([freq[c] for c in set(word)]) / float(len(word))
+
+
 def recursive_compute_scores(
     words: np.ndarray,
     corr: set,
     incl: set,
     excl: set,
+    freq: dict = None,
     last_guess: str = "",
     last_result: str = "",
     level: int = 0,
@@ -94,14 +110,15 @@ def recursive_compute_scores(
         for jdx in range(n_words):
             # Skip if same word
             if idx == jdx:
-                sub_scores[idx] = 0.0
+                sub_scores[jdx] = 0.0
                 continue
 
             guess = "".join(words[jdx])
 
             # Do not pursue guess not different enough
-            if len(set(guess) - set(last_guess)) < 1:
-                sub_scores[idx] = 0.0
+            n_corr = max(len(set([t[1] for t in corr])), len(set([t[1] for t in incl])))
+            if len(set(guess) - set(last_guess)) < min(2, len(set(result)) - n_corr):
+                sub_scores[jdx] = 0.0
                 continue
 
             progress.update(p_id, description=f"[bold {color}]{result} ({guess})[/bold {color}]", refresh=True)
@@ -109,13 +126,14 @@ def recursive_compute_scores(
             new_corr.update(corr), new_incl.update(incl), new_excl.update(excl)
             new_words = words[filter_valid(words, new_corr, new_incl, new_excl)]
 
-            if len(new_words) < n_words and level < max_level:
-                sub_scores[idx] = np.max(
+            if len(new_words) < n_words and level < max_level and len(new_corr) > len(corr):
+                sub_scores[jdx] = np.max(
                     recursive_compute_scores(
                         new_words,
                         new_corr,
                         new_incl,
                         new_excl,
+                        freq=freq,
                         last_guess=guess,
                         last_result=result,
                         level=level + 1,
@@ -124,11 +142,19 @@ def recursive_compute_scores(
                 )
             else:
                 if level == max_level:
-                    sub_scores[idx] = 1.0 / len(new_words)
+                    sub_scores[jdx] = 1.0 / len(new_words)
                 else:
-                    sub_scores[idx] = 0.0
+                    sub_scores[jdx] = 0.0
 
-        scores[np.argmax(sub_scores)] *= np.max(sub_scores)
+            if freq is not None:
+                sub_scores[jdx] *= compute_word_score(guess, freq)
+
+
+        best_guess_idx = np.argmax(sub_scores)
+        scores[best_guess_idx] *= np.max(sub_scores)
+        if freq is not None:
+            for idx in range(len(scores)):
+                scores[idx] *= compute_word_score(words[idx], freq)
         progress.update(p_id, advance=1, refresh=True)
 
     progress.remove_task(p_id)
@@ -153,6 +179,7 @@ class Solver():
 
     def __init__(self, word_list: Path, max_tries: int, max_recursions: int):
         words = [w.lower() for w in word_list.read_text().split("\n")]
+        self._freq = compute_letter_frequency(words)
         self._ws = np.asarray([list(w) for w in words])
         self._scores = np.ones(self._ws.shape[0], dtype=np.int) * np.inf
         self._corr, self._incl, self._excl = set(), set(), set()
@@ -186,6 +213,7 @@ class Solver():
                 self._corr,
                 self._incl,
                 self._excl,
+                freq=self._freq,
                 last_guess=guess,
                 max_level=self._max_rec
             )
