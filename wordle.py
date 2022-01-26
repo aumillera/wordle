@@ -60,7 +60,16 @@ def generate_response(guess: str, target: str) -> str:
     return response
 
 
-def recursive_compute_scores(words: np.ndarray, corr: set, incl: set, excl: set, level: int = 0, max_level: int = 0) -> np.ndarray:
+def recursive_compute_scores(
+    words: np.ndarray,
+    corr: set,
+    incl: set,
+    excl: set,
+    last_guess: str = "",
+    last_result: str = "",
+    level: int = 0,
+    max_level: int = 0
+) -> np.ndarray:
     n_words = len(words)
 
     # End Condition
@@ -72,8 +81,13 @@ def recursive_compute_scores(words: np.ndarray, corr: set, incl: set, excl: set,
     color = "red" if level == 0 else "yellow" if level == 1 else ""
     p_id = progress.add_task(".....", total=n_words)
     for idx in range(n_words):
-        guess = "".join(words[idx])
-        progress.update(p_id, description=f"[bold {color}]{guess}[/bold {color}]")
+        result = "".join(words[idx])
+        # progress.update(p_id, description=f"[bold {color}]{guess}[/bold {color}]")
+
+        if last_result != "" and result != last_result:
+            scores[idx] = 0.0
+            continue
+
         sub_scores = np.ones(n_words) * (1.0 / n_words)
 
         # Sample through all possible results
@@ -83,18 +97,38 @@ def recursive_compute_scores(words: np.ndarray, corr: set, incl: set, excl: set,
                 sub_scores[idx] = 0.0
                 continue
 
-            result = "".join(words[jdx])
+            guess = "".join(words[jdx])
+
+            # Do not pursue guess not different enough
+            if len(set(guess) - set(last_guess)) < 1:
+                sub_scores[idx] = 0.0
+                continue
+
+            progress.update(p_id, description=f"[bold {color}]{result} ({guess})[/bold {color}]", refresh=True)
             new_corr, new_incl, new_excl = parse_response(guess, generate_response(guess, result))
             new_corr.update(corr), new_incl.update(incl), new_excl.update(excl)
             new_words = words[filter_valid(words, new_corr, new_incl, new_excl)]
 
-            if len(new_words) < n_words // 2 and level < max_level:
-                sub_scores[idx] *= np.max(recursive_compute_scores(new_words, new_corr, new_incl, new_excl, level + 1, max_level))
+            if len(new_words) < n_words and level < max_level:
+                sub_scores[idx] = np.max(
+                    recursive_compute_scores(
+                        new_words,
+                        new_corr,
+                        new_incl,
+                        new_excl,
+                        last_guess=guess,
+                        last_result=result,
+                        level=level + 1,
+                        max_level=max_level
+                    )
+                )
             else:
-                sub_scores[idx] = 1.0 / len(new_words)
-                # sub_scores[idx] = 0.0
+                if level == max_level:
+                    sub_scores[idx] = 1.0 / len(new_words)
+                else:
+                    sub_scores[idx] = 0.0
 
-        scores[idx] *= np.max(sub_scores)
+        scores[np.argmax(sub_scores)] *= np.max(sub_scores)
         progress.update(p_id, advance=1, refresh=True)
 
     progress.remove_task(p_id)
@@ -124,7 +158,7 @@ class Solver():
         self._corr, self._incl, self._excl = set(), set(), set()
         self._max_tries = max_tries
         self._max_rec = max_recursions
-        self._idx = 0
+        self._idx = 1
 
         print(f"\nInitialized solver with [bold red]{len(self._ws)}[/bold red] words.\n")
 
@@ -147,8 +181,15 @@ class Solver():
             exit(0)
 
         with progress:
-            self._scores = recursive_compute_scores(self._ws, self._corr, self._incl, self._excl, max_level=self._max_rec)
-        self._scores *= 1.0 / np.sum(self._scores)
+            self._scores = recursive_compute_scores(
+                self._ws,
+                self._corr,
+                self._incl,
+                self._excl,
+                last_guess=guess,
+                max_level=self._max_rec
+            )
+        self._scores *= 1.0 / (np.sum(self._scores) or 1.0)
         self.suggest()
 
         self._idx += 1
@@ -189,7 +230,7 @@ if __name__ == "__main__":
 
     while not solver.solved():
         print("Enter your guess and the response separated by a space, e.g.: [bold][green]g[/green]ue[yellow]ss[/yellow] gbbyy[/bold]")
-        print("[green]:green_square: [bold]g[/bold]: Correct letter & location[/green]")
+        print("[green]:green_square: [bold]g[/bold] Correct letter & location[/green]")
         print("[yellow]:yellow_square: [bold]y[/bold] Correct letter[/yellow]")
         print(":black_large_square: [bold]b[/bold] Incorrect letter\n")
         guess, response = prompt().split(" ")
